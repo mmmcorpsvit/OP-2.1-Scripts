@@ -2,6 +2,6 @@
 # and leave all files detected as binary untouched.
 * text=auto
 
-*.script linguist-language=lua
+*.script linguist-language=Lua
 *.script text 
 *.script diff=lua 
