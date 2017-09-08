@@ -1,0 +1,48 @@
+-- Удаление/респаун постоянных объектов алспауна на других территориях для освобождения id и ресурсов
+
+class "CIDCleaner"
+
+function CIDCleaner:__init()
+	self.ids = container:get("id_cleaner", {})	-- [уровень][список spawn_id на этом уровне]
+end
+
+-- Старт новой игры
+function CIDCleaner:on_new_game()
+	-- Вычитываем id нужных секций, собираем их в таблицу и удаляем их все с НИ
+	local obj, lvl
+	for sid = 800001,804839 do				-- При добавлении объектов сюда ставить последний номер их story_id из алспауна
+		obj = story_object(sid)
+		if obj then
+			lvl = object_level(obj)
+			if not self.ids[lvl] then
+				self.ids[lvl] = {}
+			end
+			table.insert(self.ids[lvl], sid-800000)
+			release(obj)
+		end
+	end
+	
+	-- Ставим поршень принудительной смены уровня для спавна на текущем уровне
+	give_info("level_changing")
+	set_value("id_cl", ai:level_id())
+end
+
+-- Смена уровня
+function CIDCleaner:on_level_changing()
+	-- Удаляем на предыдущем уровне
+	local lvl = get_value("id_cl")
+	--log("on_level_changing clearing "..tostring(lvl))
+	for _,sid in ipairs(self.ids[lvl]) do
+		release(story_object(sid+800000))
+		--log("release", sid)
+	end
+	del_value("id_cl")
+	
+	-- Спавним на текущем уровне
+	lvl = ai:level_id()
+	--log("on_level_changing spawning "..tostring(lvl))
+	for _,sid in ipairs(self.ids[lvl]) do
+		--log("create", sid)
+		create(ai:spawn_id(sid+800000))
+	end
+end

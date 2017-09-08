@@ -1,0 +1,35 @@
+-- Биндер грузовиков для квестов на конвой
+function init(obj)
+    local new_binder = convoy_binder(obj)
+    obj:bind_object(new_binder)
+end
+---------------------------------------------------------------------------------------------
+-- Порядок загрузки:
+-- reload
+-- reinit
+-- load
+-- net_spawn
+---------------------------------------------------------------------------------------------
+class "convoy_binder" (object_binder)
+function convoy_binder:__init(obj) super(obj)
+end
+
+function convoy_binder:net_spawn(data)
+    if not object_binder.net_spawn(self, data) then
+        return false
+    end
+--	log("net_spawn: "..self.object:id())
+    return true
+end
+
+function convoy_binder:net_destroy()
+--	log("net_destroy: "..self.object:id())
+
+	if self.object:position():distance_to(db.actor:position()) < config:r_float("alife","switch_distance") and not has_info("teleport_started") then
+		-- цель исчезла в онлайне и не телепорт = взрыв
+--		log("blow: "..self.object:id())
+		give_info("info_convoy_"..string.sub(self.object:section(),8))
+	end
+
+    object_binder.net_destroy(self)
+end

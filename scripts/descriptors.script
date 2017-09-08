@@ -1,0 +1,161 @@
+-- √енераторы описани€ дл€ script_description
+
+-- ƒл€ брони
+function outfit(obj,input_section,input_condition)
+	local section = obj and obj:section() or input_section
+	local cond = obj and obj:condition() or input_condition
+	local txt = ""
+	local value
+
+	-- защиты
+	local info = {
+		{"burn", "           "},
+		{"shock", "      "},
+		{"strike", "           "},
+		{"wound", "         "},
+		{"radiation", "        "},
+		{"telepatic", "       "},
+		{"chemical_burn", "       "},
+		{"explosion", "          "},
+		{"fire_wound", "    "},
+	}
+	for _, item in ipairs(info) do
+		value = math.floor(config:r_float(section, item[1].."_protection")*100)
+		if value > 0 then
+			txt = txt.."%c[255,255,255,255]"..translate("ui_inv_outfit_"..item[1].."_protection")..item[2].."%c[255,1,255,1] +"..math.round(value*cond).."%  ("..value.."%)\\n"
+		end
+	end
+	if txt:len()>0 then
+		txt="%c[ui_clr_3]"..translate("ui_outfit_resistance")..":%c[default] \\n"..txt
+	end
+	
+	local modif_txt=""
+	-- модификаторы
+	info = {
+		["health"] = "+",
+		["satiety"] = "+",
+		["power"] = "+",
+		["bleeding"] = "-",
+	}
+	for item, v in pairs(info) do
+		if config:line_exist(section, item.."_restore_speed") then
+			value = math.round(config:r_float(section, item.."_restore_speed")*1000,1)
+			modif_txt = modif_txt.."%c[255,255,255,255]"..translate("ui_inv_"..item).."%c[255,1,255,1] "..v..math.round(value*cond).."%  ("..v..value.."%)\\n"
+		end
+	end
+
+	if config:line_exist(section, "power_loss") then
+		value = math.round(config:r_float(section, "power_loss")*100,1)
+		modif_txt = modif_txt.."%c[255,255,255,255]"..translate("ui_inv_power_loss").."%c[255,255,1,1] +"..math.round(value*cond).."%  (+"..value.."%)\\n"
+	end
+
+	value = config:r_s32(section, "additional_inventory_weight")
+	if value > 0 then
+		modif_txt = modif_txt.."%c[255,255,255,255]"..translate("ui_inv_outfit_additional_inventory_weight").."%c[255,1,255,1] +"..math.round(value*cond).." "..translate("ui_inv_aw_kg").."  (+"..value.." "..translate("ui_inv_aw_kg")..")\\n"
+	end
+	if modif_txt:len()>0 then
+		txt=txt.."%c[ui_clr_3]"..translate("ui_outfit_modifiers")..":%c[default] \\n"..modif_txt
+	end
+	-- обрезка лишних пустых строк, если нет модификаторов
+	txt = string.gsub(txt, "\\n\\n", "\\n").."\\n%c[default]"
+	return txt
+end
+
+-- параметры стволов
+local zoom = {
+	[100] = 1,
+	[93] = 1.2,
+	[75] = 1.5,
+	[70] = 1.6,
+	[65] = 1.8,
+	[56] = 2,
+	[45] = 2.5,
+	[37] = 3,
+	[32] = 3.5,
+	[28] = 4,
+	[25] = 4.5,
+	[22] = 5,
+	[20] = 5.5,
+	[18] = 6,
+	[16] = 7,
+	[14] = 8,
+	[12] = 9,
+	[11] = 10,
+	[10] = 11,
+	[9] = 12,
+	[8] = 14,
+	[7] = 16,
+	[6] = 18,
+	[5] = 22
+}
+local slots = {
+	[1] = translate("ui_slot_0"),
+	[2] = translate("ui_slot_1"),
+	[13]= translate("ui_slot_2"),
+}
+
+function weapon(obj,input_section)
+	local section = obj and obj:section() or input_section
+	local slot=config:r_u32(section, "slot") --когда вызов делает движок, он пропускает ХО, из скриптов - ХО - тоже оружие. 
+	if slot==0 then --пропускаем сразу все что в 0-й слот лезет
+		return ""
+	end
+	local txt = "%c[255,255,255,255]"
+	local value
+	
+	txt = txt..translate("ui_ammunition")
+	value = string.explode(config:r_string(section, "ammo_class"), ",", true)
+	for _, ammo in ipairs(value) do
+		txt = txt.."\\n Х "..translate(config:r_string(ammo, "inv_name"))
+	end
+	
+	if config:line_exist(section, "grenade_class") and config:r_u32(section, "grenade_launcher_status") > 0 then
+		value = string.explode(config:r_string(section, "grenade_class"), ",", true)
+		for _, ammo in ipairs(value) do
+			txt = txt.."\\n Х "..translate(config:r_string(ammo, "inv_name"))
+		end
+	end
+	txt = txt.."\\n Х "..translate("ui_slot_name").." "..slots[slot]
+	if config:line_exist(section, "silencer_fire_distance") then
+		txt = txt.."\\n Х "..translate("ui_effective_range").." "..config:r_u32(section, "silencer_fire_distance").." "..translate("ui_inv_m")
+	end
+	txt = txt.."\\n Х "..translate("ui_shooting_range").." "..config:r_u32(section, "fire_distance").." "..translate("ui_inv_m")
+	txt = txt.."\\n Х "..translate("ui_rate_of_fire").." "..config:r_u32(section, "rpm").." "..translate("ui_inv_rpm")
+	txt = txt.."\\n Х "..translate("ui_mag_cap").." "..config:r_u32(section, "ammo_mag_size").." "..translate("ui_rounds")
+
+	-- обвесы
+	local obves = ""
+	obves = obves..weapon_addon(section, "scope")..weapon_addon(section, "silencer")..weapon_addon(section, "grenade_launcher")
+	if obves ~= "" then
+		txt = txt.."\\n"..translate("ui_attachments")..obves
+	end
+
+	txt = txt.."%c[default] \\n"
+	return txt
+end
+
+-- ќписание обвеса
+function weapon_addon(section, addon_name)
+	local addon = config:r_u32(section, addon_name.."_status")
+	local txt = ""
+
+	if addon == 1 then		-- интегрированный
+		txt = txt.."\\n Х "..translate("ui_integrated").." "..translate(addon_name)
+		
+		if addon_name == "scope" then
+			local zoom_factor = config:r_u32(section, "scope_zoom_factor")
+			txt = txt..(zoom[zoom_factor] and " "..zoom[zoom_factor].."x" or "")
+		end
+
+	elseif addon == 2 then	-- съемный
+		--txt = txt.."\\n Х "..translate("ui_"..addon_name).." "..translate(config:r_string(config:r_string(section, addon_name.."_name"), "inv_name"))
+		txt = txt.."\\n Х "..translate(config:r_string(config:r_string(section, addon_name.."_name"), "inv_name"))
+	end
+
+	return txt
+end
+
+-- "ѕустое" описание
+function none(obj)
+	return ""
+end

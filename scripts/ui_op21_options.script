@@ -1,0 +1,87 @@
+class "op21_options" (CUIWindow)
+ 
+function op21_options:__init() super()
+end
+
+function op21_options:__finalize()
+end
+
+function op21_options:LoadUserDefinedPrams()
+	self.pause_on_load:SetCheck(ui_mm_opt_main.GetParamValue("pause_on_load","off")=="on")
+	self.call_sound:SetCheck(ui_mm_opt_main.GetParamValue("pause_on_load_call_sound","on")=="on")
+	self.new_sms:SetCheck(ui_mm_opt_main.GetParamValue("new_sms","on")=="on")
+end
+
+function op21_options:SaveUserDefinedPrams()
+	console:set_user_param_value("pause_on_load",(self.pause_on_load:GetCheck() and "on" or "off"))
+	console:set_user_param_value("pause_on_load_call_sound",(self.call_sound:GetCheck() and "on" or "off"))
+	console:set_user_param_value("new_sms",(self.new_sms:GetCheck() and "on" or "off"))
+end
+
+	
+function op21_options:InitControls(x, y, xml, handler)
+	self:Init(x,y, 738, 416)
+	self:SetAutoDelete(true)
+	self.bk = xml:InitFrame("op21_options:frame_op21", self)
+	
+	self.scroll_v	= xml:InitScrollView		("op21_options:scroll_v", self)
+	
+	local _st = xml:InitStatic("op21_options:templ_item",self.scroll_v)
+	xml:InitLabel		("op21_options:cap_ui_group",_st)
+	
+	local _st = xml:InitStatic("op21_options:templ_item",self.scroll_v)
+	xml:InitCheck("op21_options:check_cap_ui_show_focused",_st)
+	
+	local _st = xml:InitStatic("op21_options:templ_item",self.scroll_v)
+	xml:InitCheck("op21_options:check_cap_ui_show_selected",_st)
+	
+	local _st = xml:InitStatic("op21_options:templ_item",self.scroll_v)
+	xml:InitCheck("op21_options:check_cap_ui_show_extdesc",_st)
+	
+	local _st = xml:InitStatic("op21_options:templ_item",self.scroll_v)
+	xml:InitCheck("op21_options:check_cap_ui_show_conditions",_st)
+
+	local _st = xml:InitStatic("op21_options:templ_item",self.scroll_v)
+	xml:InitCheck("op21_options:check_cap_ui_show_trade_sb",_st)
+	
+	local _st = xml:InitStatic("op21_options:templ_item",self.scroll_v)
+	xml:InitCheck("op21_options:check_cap_ui_allow_tsb",_st)
+	
+	local _st = xml:InitStatic("op21_options:templ_item",self.scroll_v)
+	xml:InitLabel		("op21_options:cap_ui_group2",_st)
+	local _st = xml:InitStatic("op21_options:templ_item",self.scroll_v)
+	xml:InitCheck("op21_options:check_cap_dialog_numbered",_st)
+	local _st = xml:InitStatic("op21_options:templ_item",self.scroll_v)
+	xml:InitCheck("op21_options:check_cap_hud_min_crosshair",_st)
+	local _st = xml:InitStatic("op21_options:templ_item",self.scroll_v)
+	self.pause_on_load=xml:InitCheck("op21_options:check_cap_autopause",_st)
+	local _st = xml:InitStatic("op21_options:templ_item",self.scroll_v)
+	self.call_sound=xml:InitCheck("op21_options:check_cap_call_sound",_st)
+	local _st = xml:InitStatic("op21_options:templ_item",self.scroll_v)
+	self.new_sms=xml:InitCheck("op21_options:check_cap_new_sms",_st)
+	
+	local _st = xml:InitStatic("op21_options:templ_item",self.scroll_v)
+	xml:InitLabel		("op21_options:cap_ui_group3",_st)
+	local _st = xml:InitStatic("op21_options:templ_item",self.scroll_v)
+	xml:InitCheck("op21_options:check_cap_deffered_reload",_st)
+	local _st = xml:InitStatic("op21_options:templ_item",self.scroll_v)
+	xml:InitCheck("op21_options:check_cap_fixed_reload",_st)
+	
+	
+	local _st = xml:InitStatic("op21_options:templ_item",self.scroll_v)
+	xml:InitCheck("op21_options:check_cap_sticky_scope",_st)
+	
+	local _st = xml:InitStatic("op21_options:templ_item",self.scroll_v)
+	xml:InitCheck("op21_options:check_cap_scope_open",_st)
+	
+	handler.btn_game = xml:Init3tButton("op21_options:btn_game", self)
+	handler:Register(handler.btn_game, "btn_game")
+
+	handler.btn_amk = xml:Init3tButton("op21_options:btn_amk", self)
+	handler.btn_amk:Enable(game_is_running())
+	handler:Register(handler.btn_amk, "btn_amk")
+
+	handler.btn_god = xml:Init3tButton("op21_options:btn_god", self)
+	handler.btn_god:Enable(game_is_running())
+	handler:Register(handler.btn_god, "btn_god")
+end

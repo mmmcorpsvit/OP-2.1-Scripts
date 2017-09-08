@@ -1,0 +1,9 @@
+function remove_obj(obj)
+	abort(translate("remove_obj_0"), tostring(obj:name()))      
+	timer("zonedocs_gg_kill",3,"kostya_dialog.zonedocs_gg_kill()")
+	local se_obj = server_object(obj:id())
+	if se_obj then
+		release(se_obj)
+	end
+end
+

@@ -1,0 +1,340 @@
+class "Viewer" (CUIScriptWnd)
+
+function Viewer:__init(object) super()
+	self.object = object --объект контейнера
+	self.reader=ini_reader.iniReader("system")
+	self.actorValIrr = self.reader:readFloat("actor_condition", "radiation_v")
+	--соберем инфу о всех контейнерах
+	self.containers={}
+	db.actor:iterate_inventory_simple(
+		function(item)
+			if string.find(item:section(),"arc_art_box_") then
+				table.insert(self.containers,item)
+			end
+		end
+	)
+	--индекс выбранного контейнера
+	self.current_container_index=-1
+	for index,item in ipairs(self.containers) do
+		if item:name() == self.object:name() then
+			self.current_container_index=index
+			break
+		end
+	end
+	if self.current_container_index==-1 then
+		abort("! CRITICAL BUG Lost item in Viewer:__init!")
+		return
+	end
+	self:InitControls()
+	self:FillActorItems()
+	self:FillContainerItems()
+end
+
+function Viewer:__finalize() end
+
+function Viewer:get_current_container()
+	return self.containers[self.current_container_index]
+end
+
+function Viewer:next_container()
+	self.current_container_index=self.current_container_index+1
+	if self.current_container_index>table.size(self.containers) then
+		self.current_container_index=1
+	end
+	return self.containers[self.current_container_index]
+end
+
+function Viewer:prev_container()
+	self.current_container_index=self.current_container_index-1
+	if self.current_container_index==0 then
+		self.current_container_index=table.size(self.containers)
+	end
+	return self.containers[self.current_container_index]
+end
+
+function Viewer:PaintCurrentContainer()
+	--можно формировать и на лету количество ячеек (см. описание в ченжлоге) и текстуру, но у нас - шаблоны, для конфигурабельности
+	--контейнер
+	if self.container_view~=nil then
+		self.container_view:DetachChild(self.dragdrop_cv)
+		self.mwnd:DetachChild(self.container_view)
+		self.mwnd:DetachChild(self.container_info)
+	end
+	local bobj=self:get_current_container():binded_object()	
+	local container_template_name="dialog:container_view_"..bobj.slots 
+	self.container_view=self.xml:InitStatic(container_template_name, self.mwnd)
+	self.container_info=self.xml:InitStatic("dialog:container_info", self.mwnd)
+	self.dragdrop_cv=self.xml:InitDragDropListEx(container_template_name..":dragdrop_cv", self.container_view)
+	self.dragdrop_cv:set_callback(callback.cell_focus_receive, self.cell_receive_focus,self.dragdrop_cv)
+	self.dragdrop_cv:set_callback(callback.cell_focus_lost, self.cell_lost_focus,self.dragdrop_cv)
+	self.dragdrop_cv:set_callback(callback.cell_selected, self.cell_selected_cv,self)
+	self.dragdrop_cv:set_callback(callback.cell_dbl_click, self.cell_dbl_click_cv,self)
+	self.dragdrop_cv.type=1
+end
+
+function Viewer:InitControls()
+	self:Init(0,0,1024,768)
+	self:SetFont(GetFontMedium())
+	self:Enable(true)
+	self.xml= CScriptXmlInit()
+	self.xml:ParseFile("container_viewer.xml")
+	self.mwnd = self.xml:InitFrame("dialog", self)
+	
+	--попробуем поцентрировать окошечко
+	local x=(1024-self.mwnd:GetWidth())/2
+	local y=(768-self.mwnd:GetHeight())/2
+	
+	self.mwnd:SetWndPos(x,y)
+	self:PaintCurrentContainer()
+	--артефакты
+	self.actor_view=self.xml:InitStatic("dialog:actor_view", self.mwnd)
+	self.actor_info=self.xml:InitStatic("dialog:actor_info", self.mwnd)
+	self.dragdrop_av=self.xml:InitDragDropListEx("dialog:actor_view:dragdrop_av", self.actor_view)
+	
+	self.dragdrop_av:set_callback(callback.cell_focus_receive, self.cell_receive_focus,self.dragdrop_av)
+	self.dragdrop_av:set_callback(callback.cell_focus_lost, self.cell_lost_focus,self.dragdrop_av)
+	self.dragdrop_av:set_callback(callback.cell_selected, self.cell_selected_av,self)
+	self.dragdrop_av:set_callback(callback.cell_dbl_click, self.cell_dbl_click_av,self)
+	self.dragdrop_av.type=2
+	
+	self.btn_prev_container=self.xml:Init3tButton("dialog:btn_prev_container", self.mwnd)
+	self.btn_prev_container:Show(table.size(self.containers)>1)
+	self:Register(self.btn_prev_container,"btn_prev_container")
+	self:AddCallback("btn_prev_container", ui_events.BUTTON_CLICKED, 
+		function() 
+			self:next_container()
+			self:PaintCurrentContainer()
+			self:FillContainerItems()
+		end
+	, self)
+	
+	self.btn_next_container=self.xml:Init3tButton("dialog:btn_next_container", self.mwnd)
+	self.btn_next_container:Show(table.size(self.containers)>1)
+	self:Register(self.btn_next_container,"btn_next_container")
+	self:AddCallback("btn_next_container", ui_events.BUTTON_CLICKED, 
+		function() 
+			self:prev_container()
+			self:PaintCurrentContainer()
+			self:FillContainerItems()
+		end
+	, self)
+	
+	self:Register(self.xml:Init3tButton("dialog:btn_quit", self.mwnd),"btn_quit")
+	self:AddCallback("btn_quit", ui_events.BUTTON_CLICKED, self.on_quit, self)
+end
+
+--example function
+-- function Viewer:find_container()
+	-- local counts=0
+	-- db.actor:iterate_inventory_bool(
+		-- function(item)
+			-- log(item:name())
+			-- if string.find(item:section(),"arc_art_box_") then
+				-- counts=counts+1
+				-- if counts>2 then
+					-- return false
+				-- end
+			-- end
+			-- return true
+		-- end
+	-- )
+	-- if counts>1 then
+		-- return true
+	-- else
+		-- return false
+	-- end
+-- end
+
+function Viewer:move_item_av_cv(cell_item)
+	if self.dragdrop_cv:HasFreeSpace() then --чтобы влазило в сетку
+		local cell_from=self.dragdrop_av:RemoveItem(cell_item) --удалям с начального списка
+		local cell_game_object=cell_from:GetInventoryItem():GetGameObject() --возвращаем игровой объект, привязанный к данной ячейке
+		if not cell_game_object then
+			log("! ERROR invalid cell object")
+			return
+		end
+		local c_section=cell_game_object:section()
+		local c_weight=cell_game_object:item_weight()
+		local c_irradiation=cell_game_object:item_radiation()
+		local container=self:get_current_container()
+		if container:binded_object():PushItem(c_section,c_weight,c_irradiation) then --проверим, влезло ли в контейнер при сохранении данных в биндере
+			local new_cell_item=self.dragdrop_cv:CreateCellItemSimple(c_section) --создадим новый итем нужного нам типа (только по секции)
+			self.dragdrop_cv:SetItem(new_cell_item)
+			cell_from:SetSelected(false)
+			container:item_weight(container:item_weight()+c_weight) --увеличим
+			local item_irr=c_irradiation*container:binded_object().protection_koeff
+			container:item_radiation(container:item_radiation()+item_irr)
+			self.container_info:SetText(self:getContainerInfo())
+			release(cell_game_object) -- удалим его из инвентаря
+		else
+			self.dragdrop_av:SetItem(cell_from)--нарисуем назад
+			log("~ WARNING item [%s] info not store in container binder!!!",c_section)
+		end
+	end
+end
+
+function Viewer:move_item_cv_av(cell_item)
+	local cell_from=self.dragdrop_cv:RemoveItem(cell_item)
+	local section=cell_from:GetCellSection()
+	local data=self:get_current_container():binded_object():PopItem(section)
+	if data then
+		local container=self:get_current_container()
+		container:item_weight(container:item_weight()-data["weight"]) --уберем вес артефакта
+		local item_irr=data["irradiation"]*container:binded_object().protection_koeff
+		container:item_radiation(container:item_radiation()-item_irr) --уберем облучение артефакта из контейнера 
+		--отдадим актору его радиоактивный предмет, пусть радуется
+		give_info("biznes_remove_special_item")
+		local sobj=create(section,db.actor:position(), db.actor:level_vertex_id(), db.actor:game_vertex_id(), db.actor:id())
+		level.client_spawn_manager():add(sobj.id, 0, 
+			function (list, id, obj)
+				list:SetItem(obj)
+			end
+		, self.dragdrop_av)
+		self.container_info:SetText(self:getContainerInfo())
+		disable_info("biznes_remove_special_item")
+	else
+		log("~ WARNING item [%s] info not found in container binder!!!",section)
+	end
+end
+
+function Viewer:cell_dbl_click_cv(cell_item)
+	self:move_item_cv_av(cell_item)
+end
+
+function Viewer:cell_dbl_click_av(cell_item)
+	self:move_item_av_cv(cell_item)
+end
+
+function Viewer:cell_selected(cell_item,list)
+	local current=list:GetSelectedCell()
+	if current then
+		current:SetSelected(false)
+	end
+	if cell_item then
+		cell_item:SetSelected(true)
+	end
+end
+
+function Viewer:getContainerInfo()
+	local dataTable=self:get_current_container():binded_object().binderDataTable
+	if table.size(dataTable)>0 then
+		local weight=0
+		local irradiation=0
+		table.foreach(dataTable,
+			function(key,item) 
+				weight=weight+item["weight"]
+				irradiation=irradiation+item["irradiation"]*self:get_current_container():binded_object().protection_koeff
+			end
+		)
+		irradiation=math.round(irradiation/self.actorValIrr)
+		local info=translate("ui_cv_weights").." "..math.round(weight).." "..translate("ui_inv_aw_kg")
+		local color=irradiation>0 and "%c[red]" or "%c[green]"
+		info=info.." "..translate("ui_unshielded_irr").." "..color..irradiation..translate("ui_inv_radiation_units").."%c[default]"
+		return info
+	else
+		return ""
+	end
+end
+
+function Viewer:getItemInfo(obj,section)
+	local irr_value=0
+	if obj then
+		irr_value=obj:item_radiation()
+		section=obj:section()
+	else
+		irr_value=self.reader:readFloat(section, "inventory_radiation")*self:get_current_container():binded_object().protection_koeff
+	end
+	irr_value=math.round(irr_value/self.actorValIrr)
+	local color=irr_value>0 and "%c[red]" or "%c[green]"
+	local desc=translate("ui_inv_radiation_irr").." "..color..tostring(irr_value)..translate("ui_inv_radiation_units").."%c[default]"
+	desc=translate(self.reader:readString(section, "inv_name","")).." - "..desc
+	return desc
+end
+
+function Viewer:cell_selected_cv(cell_item)
+	self.container_info:SetText("")
+	local section=cell_item:GetCellSection() --узнаем секцию, на основании которой строился CUICellItem
+	local containerInfo=self:getContainerInfo()
+	local itemInfo=self:getItemInfo(nil,section)
+	self.container_info:SetText(containerInfo.." \\n"..itemInfo)
+	self:cell_selected(cell_item,self.dragdrop_cv)
+end
+
+function Viewer:cell_selected_av(cell_item)
+	self.actor_info:SetText("")
+	self:cell_selected(cell_item,self.dragdrop_av)
+	local section=cell_item:GetCellSection()
+	local obj=cell_item:GetInventoryItem():GetGameObject()
+	if obj then
+		self.actor_info:SetText(self:getItemInfo(obj))
+	end
+end
+
+function Viewer:cell_lost_focus(cell_item)
+	if cell_item then
+		cell_item:SetFocused(false)
+	end
+end
+
+function Viewer:cell_receive_focus(cell_item)
+	if cell_item then
+		cell_item:SetFocused(true)
+	end
+end
+
+function Viewer:FillContainerItems()
+	local dataTable=self:get_current_container():binded_object().binderDataTable
+	if table.size(dataTable) > 0 then
+		table.sort(dataTable,
+			function (item1,item2) 
+				return item1["section"] < item2["section"]
+			end
+		)
+		table.foreach(dataTable,
+			function(key,item) 
+				local new_cell_item=self.dragdrop_cv:CreateCellItemSimple(item["section"])
+				self.dragdrop_cv:SetItem(new_cell_item)
+			end
+		)
+	end
+	self.container_info:SetText(self:getContainerInfo())
+end
+
+function Viewer:FillActorItems()
+	itemElector=safe_ItemElector.GetItemElectorClass()
+	self.dragdrop_av:ClearAll()
+	db.actor:iterate_inventory_simple(
+		function (item)
+			if ((
+				itemElector:is_kit(item) or 
+				itemElector:is_medics(item) or 
+				itemElector:is_artefact(item) or 
+				itemElector:is_mpart(item)) and item:item_radiation()>0
+				) then
+				self.dragdrop_av:SetItem(item)
+			end
+		end)
+end
+
+function Viewer:OnKeyboard(dik, keyboard_action)
+	CUIScriptWnd.OnKeyboard(self,dik,keyboard_action)
+	if keyboard_action == ui_events.WINDOW_KEY_PRESSED then
+		if dik == DIK_keys.DIK_ESCAPE then
+			self:on_quit()
+		end
+	end
+	return true
+end
+
+function Viewer:on_quit()
+	self.dragdrop_av:set_callback(callback.cell_focus_receive, nil)
+	self.dragdrop_av:set_callback(callback.cell_focus_lost, nil)
+	self.dragdrop_av:set_callback(callback.cell_selected, nil)
+	self.dragdrop_cv:set_callback(callback.cell_focus_receive, nil)
+	self.dragdrop_cv:set_callback(callback.cell_focus_lost, nil)	
+	self.dragdrop_cv:set_callback(callback.cell_selected, nil)	
+	
+	self:GetHolder():start_stop_menu (self,true)
+end
+
+

@@ -1,0 +1,41 @@
+local obj = server_object("televizor_esc")
+if obj then
+	log("! found [%s][%s]",obj:name(),tostring(obj.id))
+	ai:set_switch_online(obj.id, true)
+	ai:set_switch_offline(obj.id, false)
+end
+--[-[
+--	db.actor:set_actor_position(level.vertex_position(2927))
+--	db.actor:set_actor_position(server_object(38699).position)
+--	local a = volazar_tbl_restr.volazar_restr()[14] db.actor:set_actor_position(xyz(a.x,a.y,a.z))
+--	db.actor:set_actor_position(patrol("vol_bloodsucker_walk_8"):point(0))
+--	local a = {position={x=-49.937427520752,y=9.9211449813843,z=187.45875549316},gv=2521,lv=7877}
+--	db.actor:set_actor_position(xyz(a.position.x,a.position.y,a.position.z))
+--]]
+
+--	_G.cycle_task = nil _G.Cycle_Task = nil	_G.Cycle_Task = cycle_task.CCycleTask()
+--	_G.Cycle_Task:stats()
+--	got("part_psevdodog_tail",1)
+--	got("af_medusa",10)
+--	give_info("escape_lager_spawn_killers")
+--	give_info("yan_find_scientist_start")
+--	disable_info("yan_find_scientist_start")
+
+--	snp.invul_on() prev_art = nil
+--	sms(tostring(has_info("escape_lager_spawn_killers")))
+
+--	akill.mina_partizan_have()
+--	find_and_release("partizan_npc", true)
+
+--[[ тест позиции
+	if prev_art then
+		release(prev_art)
+		prev_art = nil
+	end
+	if prev_art2 then
+		release(prev_art2)
+		prev_art2 = nil
+	end
+
+	prev_art = create("m_inventory_box", db.actor:position(),db.actor:level_vertex_id(),db.actor:game_vertex_id())
+--]]

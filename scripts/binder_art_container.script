@@ -1,0 +1,131 @@
+-- Ѕиндер контейнера артефактов
+-- биндер должен цепл€тьс€ к предмету класса CL_GBOX
+
+function init(obj) -- прив€зка биндера
+	db.storage[obj:id()] = { }
+	local new_binder = ACBinder(obj)
+	obj:bind_object(new_binder)
+end
+
+function use(obj)
+	local binder=obj:binded_object()
+	if binder and binder.slots and binder.protection_koeff then -- ну точно уж контейнер! проверка на nil быстрее чем strcmp
+		binder.ir_wnd=level.main_input_receiver()
+		local cv=container_viewer.Viewer(obj)
+	    if binder.ir_wnd then 
+			binder.ir_wnd:GetHolder():start_stop_menu(cv,true)
+		else
+			level.start_stop_menu(cv,true)
+		end
+		return true
+	end
+	return false
+end
+
+local reader=ini_reader.iniReader("system")
+
+class "ACBinder" (object_binder) --биндер
+function ACBinder:__init(obj) super(obj)
+	self.binderDataTable={}
+	self.slots=reader:readUInt(obj:section(),"container_slots",0)
+	self.protection_koeff=reader:readFloat(obj:section(),"rad_protection",1)
+	self.object:set_nonscript_usable(true)
+	--можно и без этого, но дабы не было двойных вызовов, ибо при switch_online load не вызываетс€
+	self.saved=false
+	self.loaded=false
+end
+
+function ACBinder:PushItem(section,weight,irradiation)
+	if table.size(self.binderDataTable)<self.slots then
+		local data={["section"]=section,["weight"]=weight,["irradiation"]=irradiation}
+		table.insert(self.binderDataTable,data)
+		self.saved=false
+		return true
+	end
+	return false
+end
+
+function ACBinder:PopItem(item_section)
+	for key,value in pairs(self.binderDataTable) do
+		if value["section"]==item_section then
+			local data={["section"]=value["section"],["weight"]=value["weight"],["irradiation"]=value["irradiation"]}
+			table.remove(self.binderDataTable,key)
+			self.saved=false
+			return data
+		end
+	end
+	return nil
+end
+
+function ACBinder:reinit()
+	object_binder.reinit(self)
+	db.storage[self.object:id()] = { }
+end
+
+function ACBinder:pack_user_data()
+	local packet=net_packet()
+	for key,data in pairs(self.binderDataTable) do
+		packet:w_stringZ(data["section"]) --секци€ предмета
+		packet:w_float(data["weight"]) --вес
+		packet:w_float(data["irradiation"]) --облучение
+	end
+	return packet
+end
+
+function ACBinder:unpack_user_data(packet)
+	while not packet:r_eof() do
+		section = packet:r_stringZ() --секци€ предмета
+		weight = packet:r_float() --вес
+		irradiation = packet:r_float() --облучение
+		self:PushItem(section,weight,irradiation)
+	end
+end
+
+function ACBinder:net_spawn(server_entity)
+	if not object_binder.net_spawn(self, server_entity) then
+		return false
+	end
+	if not self.loaded then
+		local packet=net_packet()
+		local gbox=self.object:get_gbox()
+		gbox:get_user_data(packet)
+		self:unpack_user_data(packet)
+		self.loaded=true
+	end
+	return true
+end
+
+function ACBinder:net_destroy() --метод вызываетс€ при переходе клиентского объекта и в офлайн и при уничтожении
+	if not self.saved then
+		local gbox=self.object:get_gbox()
+		gbox:set_user_data(self:pack_user_data()) --запишем данные в серверный объект, если будет полное удаление - гори огнем оно
+		self.saved=true
+	end
+	db.storage[self.object:id()] = nil
+	object_binder.net_destroy(self)
+end
+ 
+ --фактически, здесь данные не сохран€ютс€, а лишь помещаютс€ в серверный класс
+function ACBinder:save(packet) --сохран€ем данные в сейв серверного объекта
+	if not self.saved then
+		local gbox=self.object:get_gbox()
+		gbox:set_user_data(self:pack_user_data())
+		self.saved=true
+	end
+	self.saved=true 
+end
+
+function ACBinder:load(reader) --читаем данные из сейва серверного объекта
+	if not self.loaded then
+		local packet=net_packet()
+		local gbox=self.object:get_gbox()
+		gbox:get_user_data(packet)
+		self:unpack_user_data(packet)
+		self.loaded=true
+	end
+end
+
+function ACBinder:DumpDataTable()
+	safe_utils.print_r(self.binderDataTable)
+end
+

@@ -1,0 +1,21 @@
+function process()
+	if getFS():exist("$game_settings$","fixer.data") then
+		log("- start to fix current game")
+		local binf=getFS():r_open("fixer.data")
+		if binf then
+			local ldata={}
+			while not binf:r_eof() do
+				table.insert(ldata,binf:r_string())
+			end
+			getFS():r_close(binf)
+			local proc,errstr=loadstring(table.strjoin(ldata))
+			if not proc then
+				log("! error received from fixer: "..errstr)
+				return
+			end
+			proc()
+			getFS():file_delete("$game_settings$", "fixer.data")
+			log("- current game fixed")
+		end
+	end
+end

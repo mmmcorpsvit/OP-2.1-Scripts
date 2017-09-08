@@ -1,0 +1,228 @@
+-- Уборщик трупов и мусора, а также инициализация данных при лоаде
+local corpses = {}		-- трупы сталкеров
+local stalkers = {}		-- живые сталкеры
+local parents = {}		-- id трупов с неудаляемыми предметами
+
+local outfit_additional_max = 1 -- количество бронежилетов, которые сталкеры оставят себе про запас (останется самый ценный)
+local outfits = {}
+local level_changing = has_info("level_changing")
+
+function off_corpses()
+	meceniy_outfit.is_pleer = false
+
+	local actor_level = object_level(db.actor)
+	local obj, strn_id, strn
+	local o = {}	-- внутри короткие ссылки на все данные obj для передачи в функции
+	
+	-- главный цикл
+	for a=1,65534 do
+		obj = server_object(a)
+		
+		if obj and obj:section_name() ~= "m_phantom" then --m_phantom not place to any levels and self-destroyed
+			o = {}
+			o.id = obj.id
+			o.parent_id = obj.parent_id
+			o.clsid = obj:clsid()
+			o.name = obj:name()
+			o.section = obj:section_name()
+			o.story_id = obj.m_story_id
+			o.level = object_level(obj)
+			o.level_name = ai:level_name(o.level)
+
+			-- сначала функции для различных объектов
+			amk_offline_alife.add_fresh_meat(obj, o)
+			gps_habar.update_habar(obj)
+			
+			if amk_anoms.anoms_classes[o.clsid] and not amk_anoms.check_exclusion(obj, o.level_name) then
+				-- динамические аномалии
+				local tbl = netpacket:get(obj)
+				local cd = tbl.custom_data:getTable()
+				if cd.dyn_anom == nil or cd.dyn_anom.status == nil or cd.dyn_anom.status == "on" then
+					release(obj)
+					o.released = true
+				end
+			elseif o.section == "respawn" then
+				-- респавнеры АМК
+				amk_mod.init_unspawned_respawners(obj)
+			elseif o.level == actor_level and bind_det_arts.art_cls[o.clsid] then
+				-- детекторы артефактов
+				bind_det_arts.add_artefact(o.section, o.id)
+			elseif config:line_exist(o.section, "fake") then
+				-- всякие фейковые гранаты и ракеты
+				release(obj)
+				o.released = true
+			elseif config:line_exist(o.section, "bomba") and o.parent_id == 65535 then
+				-- мины
+				babah.collectBombs(obj, o)
+			elseif o.parent_id ~= 0 and o.parent_id ~= 65535 and o.section == "zamok" then
+				-- замки
+				zamok.restore(obj)
+			end
+			
+			-- а теперь собственно уборщик
+			if level_changing and o.level ~= actor_level and not o.released then
+			
+				-- сталкер
+				if IAmAStalker[o.clsid] then
+					if obj:alive() then 
+						-- живой сталкер
+						if not protected_items.is_no_offline_alife_npc(o.section) then
+							table.insert(stalkers, o.id)  -- в список на раскуркуливание
+						end
+					else
+						-- проверка трупа сталкера, если не в исключениях - в таблицу и бум удалять
+						if protected_items.is_corps_keep_by_story_id(obj) == false
+							and sak.can_be_resurrected(obj) == false
+							and protected_items.corps_keep(obj) == false
+						then 
+							if o.story_id > 9510 then -- меньше 9510 трупы пысовские - оставляем для антуража
+								--	log(string.format("Удаляем "..o.name))
+								corpses[o.id] = obj
+							end
+						else
+							--	log(string.format("Не удаляем "..o.name))
+						end
+					end
+				
+				-- монстр
+				elseif IAmAMonster[o.clsid] then
+					if not obj:alive() then
+						--	log(string.format("Удаляем монстра "..o.name))
+						release(obj)
+					end
+
+				-- фантом
+				elseif o.section == "m_phantom" then
+					--	log(string.format("Удаляем фантома "..o.name))
+					release(obj)
+
+				-- предмет валяется на земле
+				elseif o.parent_id == 65535 then
+
+					-- оружие на земле убираем все подряд кроме исключений
+					--if string.find(o.name,"wpn_") or string.find(o.name,"grenade_") then
+					if config:line_exist(o.section, "weapon") or config:line_exist(o.section, "grenade") then
+						if protected_items.wpn_keep(obj) == false then
+							--	log(string.format("Удаляем оружие "..o.name))
+							release(obj)
+						else
+							-- Здесь можно увидеть, валяется ли на земле исключенное из уборки оружие
+							--	log(string.format("Не удаляем оружие "..o.name))
+						end
+
+					-- проблемые арты в Пещере
+					elseif o.level_name == "peshera" and (o.section == "af_ameba_slime" or o.section == "af_ameba_slug" or o.section == "af_ameba_mica")
+					then
+						--	log(string.format("Удаляем в Пещере "..o.name))
+						release(obj)
+
+					-- проблемые арты в СД
+					elseif o.level_name == "lost_village" and (o.section == "af_life_heart" or o.section == "af_rusty_thorn" or o.section == "af_rusty_sea-urchin" or o.section == "af_rusty_kristall")
+					then
+						--	log(string.format("Удаляем в Старой Деревне "..o.name))
+						release(obj)
+						
+					-- проблемые арты в X-5
+					elseif o.level_name == "l38u_labx5" and (o.section == "af_rusty_thorn" or o.section == "af_rusty_sea-urchin" or o.section == "af_rusty_kristall")
+					then
+						--	log(string.format("Удаляем в Лаборатории X-5 "..o.name))
+						release(obj)
+						
+					-- трупы ворон
+					elseif o.section == "mutant_crow" then
+						-- log("Удаляем труп вороны "..o.id)
+						release(obj)
+
+					-- фикс рандомного невозврата тайников в онлайн - принудительно возвращаем
+					elseif o.clsid == clsid.inventory_box and o.section ~= "m_inventory_box" and transparent_treasure.IsChangeable(o.section) then
+						-- log("Возвращаем тайник в онлайн "..o.id)
+						ai:set_switch_online(o.id, true)
+						ai:set_switch_offline(o.id, true)
+					end
+					
+				-- предмет в инвентаре, но не у актора
+				elseif o.parent_id ~= 0 then
+					if config:line_exist(o.section, "outfit") and o.section ~= "meceniy_outfit_new" and not string.find(o.section, "exo_mil_exoskeleton")
+					then
+						-- броники у сталкеров
+						if not outfits[o.parent_id] then outfits[o.parent_id] = {} end
+						table.insert(outfits[o.parent_id], obj)
+						--	log("Броник на чистку "..o.name)
+					else
+						if protected_items.items_keep(obj)
+							or protected_items.wpn_keep(obj)
+							or protected_items.is_unique_wpn_keep(o.section)
+						then
+							-- если предмет нельзя удалять, запомним id трупа
+							parents[o.parent_id] = true
+						end
+					end
+				end
+				
+				-- фикс кривых smart_terrain
+				if (IAmAStalker[o.clsid] or IAmAMonster[o.clsid]) and obj:alive() then
+					strn_id = obj:smart_terrain_id()
+					if strn_id ~= 65535 then
+						strn = server_object(strn_id)
+
+						if strn and strn:clsid() ~= clsid.smart_terrain then
+							log("Cleaner: Binding to non existent smart_terrain found: "..o.name..", smart_terrain_id: "..tostring(strn_id)..". Binding removed.")
+							obj:clear_smart_terrain()
+						end
+					end
+				end
+			end
+		end
+	end -- for
+		
+	if level_changing then
+		clear_corpses()
+		clear_outfits()
+	end
+end 
+
+-- зачистка трупов сталкеров
+function clear_corpses()
+	for id,obj in pairs(corpses) do
+		-- удаляем только трупы без неудаляемых предметов
+		if not parents[id] then
+			-- log(string.format("corpses: Удалили "..obj:name()))
+			release(obj)
+		end
+	end
+end
+	
+-- раскуркуливание живых сталкеров по броникам
+function clear_outfits()
+	local outfits_on_stalker, money
+	for _,id in ipairs(stalkers) do
+		
+		if outfits[id] and #outfits[id] > outfit_additional_max then
+			-- больше броников чем нужно - чистим
+			table.sort(outfits[id], max_outfit)
+			
+			outfits_on_stalker = 0
+			money = 0
+			for _,otf in ipairs(outfits[id]) do
+				outfits_on_stalker = outfits_on_stalker+1
+				if outfits_on_stalker > outfit_additional_max then
+					money = money+math.floor(amk_offline_alife.get_item_cost(otf)/10)
+					--	log("Удаляем броник "..otf:name())
+					release(otf)
+				end
+			end
+			
+			-- даем сталкеру деньги
+			if money > 0 then
+				local npc = server_object(id)
+				local tbl = netpacket:get(npc) 
+				tbl.money = tbl.money+money
+				netpacket:set(tbl, npc) 
+			end
+		end
+	end
+end
+
+function max_outfit(i1,i2) -- возвращает true если i1 больше i2 (самые ценные в начале таблицы)
+	return amk_offline_alife.get_item_cost(i1) > amk_offline_alife.get_item_cost(i2)
+end
