@@ -1,0 +1,221 @@
+class "pi" (CUIScriptWnd)
+
+function pi:__init(owner) super()
+	--self.owner = owner
+	self:InitControls()
+	self:InitCallBacks()
+	self:showposinfo()
+end
+
+function pi:__finalize() end
+
+function pi:InitControls()
+	self:Init(30,30,600,530)
+	local xml = CScriptXmlInit()
+	xml:ParseFile("ui_position_informer.xml")
+	xml:InitStatic("background", self)
+	self:Register(xml:Init3tButton("caption1", self),"caption1")
+	self:Register(xml:Init3tButton("caption2", self),"caption2")
+	self:Register(xml:Init3tButton("btn_q", self),"btn_q")
+	self:Register(xml:Init3tButton("btn_s", self),"btn_s")
+	self:Register(xml:InitEditBox("edit_box", 	self), "edit_box")
+
+	self:Register(xml:Init3tButton("gamevertexid", self),"gamevertexid")
+	self:Register(xml:InitEditBox("gamevertexid_box", 	self), "gamevertexid_box")	
+	self:Register(xml:Init3tButton("levelname", self),"levelname")
+	self:Register(xml:InitEditBox("levelname_box", 	self), "levelname_box")
+	self:Register(xml:Init3tButton("btn_show", self),"btn_show")
+
+	self:Register(xml:Init3tButton("levelvertexid", self),"levelvertexid")
+	self:Register(xml:InitEditBox("levelvertexid_box", self),"levelvertexid_box")
+	self:Register(xml:Init3tButton("position", self),"position")
+	self:Register(xml:InitEditBox("positionX", self),"positionX")
+	self:Register(xml:InitEditBox("positionY", self),"positionY")
+	self:Register(xml:InitEditBox("positionZ", self),"positionZ")
+	self:Register(xml:Init3tButton("direction", self),"direction")
+	self:Register(xml:InitEditBox("directionX", self),"directionX")
+	self:Register(xml:InitEditBox("directionY", self),"directionY")
+	self:Register(xml:InitEditBox("directionZ", self),"directionZ")
+	self:Register(xml:Init3tButton("caption3", self),"caption3")
+	
+	xml:InitStatic("caption_telep", self)
+	xml:InitStatic("caption_coord", self)
+	self.coord_box=xml:InitEditBox("edit_coord", self)
+	self:Register(xml:Init3tButton("btn_go", self),"btn_go")
+	
+	self.message_box = CUIMessageBoxEx()
+	self:Register(self.message_box, "message_box")	
+	self.message_box:Init("message_box_error_safe")
+
+end
+
+function pi:InitCallBacks()
+	self:AddCallback("btn_q", ui_events.BUTTON_CLICKED, self.on_quit, self)
+	self:AddCallback("btn_s", ui_events.BUTTON_CLICKED, self.getposinfo, self)
+	self:AddCallback("btn_show", ui_events.BUTTON_CLICKED, self.showposinfo, self)
+	self:AddCallback("btn_go", ui_events.BUTTON_CLICKED, self.go_teleport, self)
+end
+
+function pi:go_teleport()
+	local coords={}
+	for i in string.gmatch(self.coord_box:GetText(), "([+-]*[%d]+[.%d+]*)") do
+		table.insert(coords,i)
+	end
+	if table.size(coords)<3 or table.size(coords)>5 then
+		self.message_box:SetText("Неправильная входящая строка")
+		self:GetHolder():start_stop_menu(self.message_box, true)
+		return
+	end
+	for key,value in pairs(coords) do
+		coords[key]=tonumber(value)
+		if not coords[key] then
+			self.message_box:SetText("Невозможно преобразовать "..value.." в число")
+			self:GetHolder():start_stop_menu(self.message_box, true)
+			return 
+		end
+	end
+	if table.size(coords)>4 then
+		local game_vertex=coords[5]
+		local level_name=game_graph().level_name_by_gvid(game_vertex)
+		if level_name=="" then
+			self.message_box:SetText("Невозможно определить уровень для GVID "..tostring(game_vertex))
+			self:GetHolder():start_stop_menu(self.message_box, true)
+			return 
+		end
+		if level_name ~= object_level_name(db.actor) then
+			self.message_box:SetText("Введенный геймвертекс находиться на уровне ["..level_name.."]. Воспользуйтесь в начале консолькой командой jump_to_level")
+			self:GetHolder():start_stop_menu(self.message_box, true)
+			return 
+		end
+	end
+	db.actor:set_actor_position(vector():set(coords[1],coords[2],coords[3]))
+	self:GetEditBox("gamevertexid_box"):SetText("")
+	self:GetEditBox("levelvertexid_box"):SetText("")
+	self:GetEditBox("positionX"):SetText("")
+	self:GetEditBox("positionY"):SetText("")
+	self:GetEditBox("positionZ"):SetText("")
+	self:GetEditBox("directionX"):SetText("")
+	self:GetEditBox("directionY"):SetText("")
+	self:GetEditBox("directionZ"):SetText("")
+	--self:showposinfo()
+end
+
+function pi:OnKeyboard(dik, keyboard_action)
+	CUIScriptWnd.OnKeyboard(self,dik,keyboard_action)
+	if keyboard_action == ui_events.WINDOW_KEY_PRESSED then
+		if dik == DIK_keys.DIK_ESCAPE then
+			self:on_quit()
+		end
+		if dik == DIK_keys.DIK_RETURN then
+			self:showposinfo()
+		end
+	end
+	return true
+end
+
+function pi:showposinfo()
+	local ln=level.name()
+	local gd=db.actor:game_vertex_id()
+	local ld=db.actor:level_vertex_id()
+	local pos=db.actor:position()
+	local posX=pos.x
+	local posY=pos.y
+	local posZ=pos.z
+	local dir=db.actor:direction()
+	local dirX=dir.x
+	local dirY=dir.y
+	local dirZ=dir.z
+	
+	local levelname=self:GetEditBox("levelname_box")
+	local gamevertexid=self:GetEditBox("gamevertexid_box")
+	local levelvertexid=self:GetEditBox("levelvertexid_box")
+	local pX=self:GetEditBox("positionX")
+	local pY=self:GetEditBox("positionY")
+	local pZ=self:GetEditBox("positionZ")
+	local dX=self:GetEditBox("directionX")
+	local dY=self:GetEditBox("directionY")
+	local dZ=self:GetEditBox("directionZ")
+
+	levelname:SetText(ln)
+	gamevertexid:SetText(tostring(gd))
+	levelvertexid:SetText(tostring(ld))
+	pX:SetText(tostring(posX))
+	pY:SetText(tostring(posY))
+	pZ:SetText(tostring(posZ))
+	dX:SetText(tostring(dirX))
+	dY:SetText(tostring(dirY))
+	dZ:SetText(tostring(dirZ))
+end
+
+function pi:getposinfo()
+	local ln=level.name()
+	local gd=db.actor:game_vertex_id()
+	local ld=db.actor:level_vertex_id()
+	local pos=db.actor:position()
+	local posX=pos.x
+	local posY=pos.y
+	local posZ=pos.z
+	local dir=db.actor:direction()
+	local dirX=dir.x
+	local dirY=dir.y
+	local dirZ=dir.z
+
+	local levelname=self:GetEditBox("levelname_box")
+	local gamevertexid=self:GetEditBox("gamevertexid_box")
+	local levelvertexid=self:GetEditBox("levelvertexid_box")
+	local pX=self:GetEditBox("positionX")
+	local pY=self:GetEditBox("positionY")
+	local pZ=self:GetEditBox("positionZ")
+	local dX=self:GetEditBox("directionX")
+	local dY=self:GetEditBox("directionY")
+	local dZ=self:GetEditBox("directionZ")
+	local posnamebox=self:GetEditBox("edit_box")
+	local posname=posnamebox:GetText()
+
+	posname=string.gsub(posname, "%s", "_")
+	posname=string.gsub(posname, "|", "/")
+
+	levelname:SetText(ln)
+	gamevertexid:SetText(tostring(gd))
+	levelvertexid:SetText(tostring(ld))
+	pX:SetText(tostring(posX))
+	pY:SetText(tostring(posY))
+	pZ:SetText(tostring(posZ))
+	dX:SetText(tostring(dirX))
+	dY:SetText(tostring(dirY))
+	dZ:SetText(tostring(dirZ))
+
+	if string.len(posname)>0 then
+		-- log("<Position_Informer_Script>")
+		 log("posName="..posname)
+		 log("{position={x="..posX..",y="..posY..",z="..posZ.."},gv="..gd..",lv="..ld.."},")
+		 log("xyz("..posX..","..posY..","..posZ.."),"..ld..","..gd..")")
+		-- log("xyzlg = "..posX..","..posY..","..posZ..","..ld..","..gd)
+		-- log("p0:position = "..posX..","..posY..","..posZ)
+		-- log("p0:game_vertex_id = "..gd)
+		-- log("p0:level_vertex_id = "..ld)
+		-- log("position = "..posX..","..posY..","..posZ)
+		-- log("direction = "..dirX..","..dirY..","..dirZ)
+		-- log("game_vertex_id = "..gd)
+		-- log("level_vertex_id = "..ld)
+		 log("levelName="..ln)
+		-- log("directionX="..dirX)
+		-- log("directionY="..dirY)
+		-- log("directionZ="..dirZ)
+		-- log("LevelVertexID="..ld)
+		-- log("GameVertexID="..gd)
+		-- log("</Position_Informer_Script>")
+		 console:execute("flush")
+	end
+end
+
+
+
+function pi:on_quit()
+	--self:GetHolder():start_stop_menu (self.owner, true)
+	self:GetHolder():start_stop_menu (self,true)
+	--self.owner:Show	(true)
+	if game_is_running() then
+		console:execute("main_menu off")
+	end
+end

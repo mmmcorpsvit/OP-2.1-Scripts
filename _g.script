@@ -1,0 +1,758 @@
+engine_log("- Gamedata version: ["..game.translate_string("version").."]")
+schemes	= {} -- соответствие схем модулям
+stypes	= {} -- типы схем
+
+ini_cache = {}
+
+-- Загружает схему из файла на диске и активирует в мотиваторе.
+-- filename - имя файла, в котором реализована схема, без расширения
+-- scheme - имя схемы
+function load_scheme(filename, scheme, stype)
+	schemes[scheme]	= filename
+	stypes[scheme]	= stype
+end
+
+-- Глобальные singletone классы
+config = system_ini()
+console = get_console()
+graph = game_graph()
+screen = device()
+
+-- Следующие singletone классы задаются в start_game_callback
+ai = nil
+netpacket = nil
+
+-- В init_container
+container = nil		-- Универсальное не ограниченное в размерах хранилище значений key = value, включая вложенные таблицы. Хранится в сейве независимо от нетпакетов.
+Cycle_Task = nil
+Variable = nil
+
+-- В bind_actor.net_spawn
+Inventory = nil
+hud = nil
+Arena = nil
+ID_Cleaner = nil
+Dream = nil
+Timer = nil
+
+prefetch("lua_ext")
+
+-- Старт игры
+function start_game_callback()
+	local ratio = (1024/768)/(screen.width/screen.height)
+	console:execute(" ls_text_offset_x ".. 40*ratio)
+	console:execute(" ls_text_offset_y ".. 120*ratio)
+
+	ai = alife()
+	netpacket = m_netpk.c_net_packet()
+
+	timers.get_start_time()
+	xr_sound.clear_all_sound_object()
+	if not phrase then
+		dialog_manager.fill_phrase_table()
+	end
+	amk.on_game_start()
+end
+
+-- Чтение контейнера и создание классов из его данных
+function init_container()
+	if not container then
+		container = keyvals("OP2")
+		Cycle_Task = cycle_task.CCycleTask()
+		Variable = xr_logic.CVariable()
+	end
+end
+
+function after_objs_load_callback() --калбек вызывается после загрузки объектов из сейва
+	init_container()
+end
+
+-- запущена ли игра
+function game_is_running()
+	return level.present() and db.actor and db.actor:alive()
+end
+
+-- Короткие имена для частых функций
+voice = xr_sound.get_safe_sound_object
+sms = news_manager.send_tip
+translate = game.translate_string
+
+-- метки на карте
+map_spot = level.map_add_object_spot_ser
+level_map_spot = level.map_add_object_spot
+has_map_spot = level.map_has_object_spot
+del_map_spot = level.map_remove_object_spot
+
+-- переменные
+function set_value(var, value)
+	return Variable:set(var, value)
+end
+function get_value(var, default, delete)
+	return Variable:get(var, default, delete)
+end
+function del_value(var)
+	return Variable:del(var)
+end
+function has_value(var)
+	return Variable:set(var)
+end
+
+-- Инвентарь ГГ, объявляется в bind_actor.net_spawn
+Inventory = nil
+function has(s,i)
+	return Inventory:has(s,i)
+end
+function has_good(s,i)
+	return Inventory:has_good(s,i)
+end
+function got(s,i)
+	Inventory:got(s,i)
+end
+function lost(s,i)
+	Inventory:lost(s,i)
+end
+function lost_good(s,i)
+	Inventory:lost_good(s,i)
+end
+function lost_all(s)
+	Inventory:lost_all(s)
+end
+function transfer(v,s,t)
+	Inventory:transfer(v,s,t)
+end
+-- Нужно ли контролировать состояние предмета (стволы и броники)
+function condition_item(s)
+	return config:line_exist(s, "weapon") or config:line_exist(s, "outfit")
+end
+-- Спавн секции в инвентарь актора без вывода сообщения
+function got_item(s)
+	create(s,xyz(0,0,0),0,0,0)
+end
+-- Удаление секции из инвентаря актора без вывода сообщения
+function lost_item(s)
+	release(db.actor:object(s))
+end
+
+-- Тайники
+Treasure = treasure.CTreasure()
+function got_treasure(t)
+	Treasure:give(t)
+end
+
+-- Деньги
+function got_money(m)
+	db.actor:give_money(m)
+	game_stats.money_quest_update(m)
+	news_manager.relocate_money("in", m)
+end
+function lost_money(m)
+	db.actor:give_money(-m)
+	game_stats.money_quest_update(-m)
+	news_manager.relocate_money("out", m)
+end
+function has_money(m)
+	return db.actor:money() >= m
+end
+
+-- Проиграть звук
+function say(s)
+	voice(s):play_no_feedback(db.actor, sound_object.s2d, 0, vector(), 1.0)
+end
+
+-- Вместо has_alife_info, alife():has_info, db.actor:has_info
+function has_info(i)
+	return ai:has_info(0,i)
+end
+
+-- Вместо db.actor:give_info_portion
+function give_info(i)
+	return db.actor:give_info_portion(i)
+end
+
+-- Вместо db.actor:disable_info_portion
+function disable_info(i)
+	return db.actor:disable_info_portion(i)
+end
+
+-- Вместо alife():create() все варианты
+function create(...)
+	return ai:create(...)
+end
+
+-- Вместо alife():release(), alife():release(alife():object(id|name)) со всеми проверками.
+-- В качестве параметра можно передавать серверный объект, клиентский объект и просто id. Для объектов алспауна можно передавать name.
+function release(o)
+	if not o then return end
+
+	if type(o) ~= "userdata" then		-- id или name
+		local o = ai:object(o)
+		if o then ai:release(o) end
+	elseif o.section_name then			-- серверный объект
+		ai:release(o)
+	else								-- клиентский объект
+		local o = ai:object(o:id())
+		if o then ai:release(o) end
+	end
+end
+
+-- Вместо alife():object()
+function server_object(o)
+	return ai:object(o)
+end
+
+-- Вместо alife():story_object()
+function story_object(o)
+	return ai:story_object(o)
+end
+
+-- Уровень, на котором находится объект
+function object_level(o)
+	return graph:vertex(o.m_game_vertex_id and o.m_game_vertex_id or o:game_vertex_id()):level_id()
+end
+
+-- Название уровня, на котором находится объект
+function object_level_name(o)
+	return ai:level_name(object_level(o))
+end
+
+-- Вместо level.object_by_id()
+level_object = level.object_by_id
+
+-- Вместо level_object_by_sid()
+function level_story_object(sid)
+	local o = story_object(sid)
+	return o and level_object(o.id) or nil
+end
+
+-- Получение id по story_id
+function id_by_sid(sid)
+	local o = story_object(sid)
+	return o and o.id or nil
+end
+
+-- Ищет серверные объекты по section и вызывает для них функцию f с любыми параметрами, пока она возвращает true.
+-- Вернет false или nil - цикл прервется. Возвращает последний найденный объект. 
+-- Если f = nil, то просто возвращает первый найденный объект.
+function iterate_server_objects(s, f, ...)
+	local o
+    for i=1,65534 do
+		o = ai:object(i)
+		if o and o:section_name() == s and (f == nil or not f(o, ...)) then
+			return o
+		end
+	end
+end
+
+-- Ищет клиентские объекты по section и вызывает для них функцию f с любыми параметрами, пока она возвращает true.
+-- Вернет false или nil - цикл прервется. Возвращает последний найденный объект.
+-- Если f = nil, то просто возвращает первый найденный объект.
+function iterate_level_objects(s, f, ...)
+	local o
+    for i=1,65534 do
+		o = level_object(i)
+		if o and o:section() == s and (f == nil or not f(o, ...)) then
+			return o
+		end
+	end
+end
+
+-- Поиск и удаление объекта по section. all = true - удалить все объекты.
+function find_and_release(s, all)
+	local f = function(o, all)
+		release(o)
+		return all
+	end
+	
+	iterate_server_objects(s, f, all)
+end
+
+-- Это использовать только при разовых указаниях позиции для create и т.п. Для всего остального использовать свой экземпляр класса vector().
+pos_only = vector()
+function xyz(x,y,z)
+	return pos_only:set(x,y,z)
+end
+
+-- Запуск таймера
+function timer(name, delay, parameters)
+	Timer:start(name, delay, parameters)
+end
+
+-- Спавн/удаление особых объектов
+
+-- Спавн телепортов
+function create_teleport(section, pos, lv, gv)
+    local o = ai:create(section, pos, lv, gv)
+	set_value(section, o.id)
+	return o
+end
+-- Удаление телепортов
+function release_teleport(section)
+	release(get_value(section, -1, true))
+end
+
+-- Спавн БТР и любой машины, logic_file - путь к файлу логики
+function create_car(section, pos, lv, gv, logic_file)
+	local o = ai:create(section, pos, lv, gv)
+	netpacket:modify(o,
+		"object_flags", bit_not(5),	-- 0xfffffffa
+		"custom_data", "[logic]\ncfg = "..logic_file,
+		"health", 1
+	)
+	return o
+end
+
+-- Спавн вертолета, logic_file - путь к файлу логики
+function create_helicopter(section, pos, lv, gv, logic_file)
+	local o = ai:create(section, pos, lv, gv)
+	netpacket:modify(o,
+		"object_flags", bit_not(5),	-- 0xfffffffa
+		"custom_data", "[logic]\ncfg = "..logic_file,
+		"skeleton_name", "idle",
+		"startup_animation", "idle",
+		"engine_sound", "alexmx\\helicopter"
+	)
+	return o
+end
+
+-- Спавн level_changer
+function create_level_changer(
+	story_id,		-- story_id level_changer
+	pos, lv, gv,	-- позиция спавна level_changer
+	dlv, dgv, dpos,	-- позиция перемещения ГГ
+	ddir,			-- направление взгляда ГГ
+	lvl_name,		-- название уровня
+	silent,			-- 1 - не спрашивать о переходе
+	radius			-- радиус захвата телепорта
+)
+	local o = create("level_changer", pos, lv, gv)
+
+	netpacket:modify(o,
+		"story_id", story_id,
+		"object_flags", bit_not(193),	-- 0xffffff3e
+		"restrictor_type", 3,
+		"dest_game_vertex_id", dgv,
+		"dest_level_vertex_id", dlv,
+		"dest_position", dpos,
+		"dest_direction", ddir,
+		"dest_level_name", lvl_name,
+		"dest_graph_point", "start_actor_02",
+		"silent_mode", silent,
+		"shapes", radius or 1
+	)
+	
+	return o
+end
+
+-- Спавн restrictor с присвоением логики и радиуса
+function create_restrictor(pos, lv, gv, logic, radius)
+	local o = create("space_restrictor", pos, lv, gv)
+	netpacket:modify(o,
+		"custom_data", logic,
+		"shapes", radius
+	)
+	return o
+end
+
+-- Запись в нетпакет restrictor логики и радиуса захвата. Сделано исключительно для совместимости с имеющимися скриптами. В дальнейшем пользоваться только create_restrictor!
+function rewrite_restrictor(o, logic, radius)
+	netpacket:modify(o,
+		"custom_data", logic,
+		"shapes", radius
+	)
+end
+
+function printf(fmt,...)
+--[[ Раскомментить это для включения расширенного лога
+	log(string.gsub(string.format(fmt,...), " ", "_"))
+	--console:execute("flush")
+--]]
+end
+
+-- Вывод в лог
+function log(fmt,...)
+	engine_log(string.extformat(fmt,unpack({...})))
+end
+
+function wait(time_to_wait)
+	verify_if_thread_is_running()
+	if not time_to_wait then
+		coroutine.yield()
+	else
+		local time_to_stop = time_global() + time_to_wait
+		while time_global() <= time_to_stop do
+			coroutine.yield()
+		end
+	end
+end
+
+function action(obj,...)
+	local arg = {...}
+	local act = entity_action()
+	local i = 1
+	while arg[i] ~= nil do
+		act:set_action(arg[i])
+		i = i + 1
+	end
+	if obj then
+		obj:command(act,false)
+	end
+	return entity_action(act)
+end
+
+function distance_between(obj1, obj2)
+	return obj1:position():distance_to(obj2:position())
+end
+
+function reset_action(npc, script_name)
+	if npc:get_script() then
+	   npc:script(false, script_name)
+	end
+	npc:script(true, script_name)
+end
+
+-- Константа, которую использовать в местах, где нужно задать неограниченное время действия
+time_infinite = 100000000
+
+-- Рандомный выбор из списка параметров
+function random_choice(...)
+	local arg = {...}
+	local r = math.random(1, #arg)
+	return arg[r]
+end
+
+-- Преобразует строку в boolean
+function toboolean(value) 
+	return string.find(string.lower(value), "true") or value == "1" or string.find(string.lower(value), "on")
+end
+
+function is_object_online(obj_id)
+	return level_object(obj_id) ~= nil
+end
+
+function isWeapon(object)
+	local clsid_weapon = {
+		[clsid.wpn_ak74_s]			= true,
+		[clsid.wpn_bm16_s]			= true,
+		[clsid.wpn_grenade_f1]		= true,
+		[clsid.wpn_grenade_fake]	= true,
+		[clsid.wpn_grenade_launcher]= true,
+		[clsid.wpn_grenade_rgd5]	= true,
+		[clsid.wpn_grenade_rpg7]	= true,
+		[clsid.wpn_groza_s]			= true,
+		[clsid.wpn_hpsa_s]			= true,
+		[clsid.wpn_knife_s]			= true,
+		[clsid.wpn_lr300_s]			= true,
+		[clsid.wpn_pm_s]			= true,
+		[clsid.wpn_rpg7_s]			= true,
+		[clsid.wpn_shotgun_s]		= true,
+		[clsid.wpn_svd_s]			= true,
+		[clsid.wpn_svu_s]			= true,
+		[clsid.wpn_usp45_s]			= true,
+		[clsid.wpn_val_s]			= true,
+		[clsid.wpn_vintorez_s]		= true,
+		[clsid.wpn_walther_s]		= true,
+	}
+	return (object and clsid_weapon[object:clsid()])
+end
+function isWeaponFireOnly(object)
+	local clsid_weapon_fireonly = {
+		[clsid.wpn_ak74_s]		= true,
+		[clsid.wpn_bm16_s]		= true,
+		[clsid.wpn_fn2000]		= true,
+		[clsid.wpn_fort]		= true,
+		[clsid.wpn_groza_s]		= true,
+		[clsid.wpn_hpsa_s]		= true,
+		[clsid.wpn_lr300_s]		= true,
+		[clsid.wpn_pm_s]		= true,
+		[clsid.wpn_rg6_s]		= true,
+		[clsid.wpn_rpg7_s]		= true,
+		[clsid.wpn_shotgun_s]	= true,
+		[clsid.wpn_svd_s]		= true,
+		[clsid.wpn_svu_s]		= true,
+		[clsid.wpn_usp45_s]		= true,
+		[clsid.wpn_val_s]		= true,
+		[clsid.wpn_vintorez_s]	= true,
+		[clsid.wpn_walther_s]	= true,
+	}
+	return (object and clsid_weapon_fireonly[object:clsid()])
+end
+IAmAWeapon = {}
+function IAmAWeaponInit()
+	IAmAWeapon = {
+		[clsid.wpn_ak74_s]			= true,
+		[clsid.wpn_bm16_s]			= true,
+		[clsid.wpn_grenade_f1]		= true,
+		[clsid.wpn_grenade_fake]	= true,
+		[clsid.wpn_grenade_launcher]= true,
+		[clsid.wpn_grenade_rgd5]	= true,
+		[clsid.wpn_grenade_rpg7]	= true,
+		[clsid.wpn_groza_s]			= true,
+		[clsid.wpn_hpsa_s]			= true,
+		[clsid.wpn_knife_s]			= true,
+		[clsid.wpn_lr300_s]			= true,
+		[clsid.wpn_pm_s]			= true,
+		[clsid.wpn_rpg7_s]			= true,
+		[clsid.wpn_rg6_s]			= true,
+		[clsid.wpn_shotgun_s]		= true,
+		[clsid.wpn_svd_s]			= true,
+		[clsid.wpn_svu_s]			= true,
+		[clsid.wpn_usp45_s]			= true,
+		[clsid.wpn_val_s]			= true,
+		[clsid.wpn_vintorez_s]		= true,
+		[clsid.wpn_walther_s]		= true
+	}
+end
+IAmAWeaponFireOnly = {}
+function IAmAWeaponFireOnlyInit()
+	IAmAWeaponFireOnly = {
+		[clsid.wpn_ak74_s]		= true,
+		[clsid.wpn_bm16_s]		= true,
+		[clsid.wpn_fn2000]		= true,
+		[clsid.wpn_fort]		= true,
+		[clsid.wpn_groza_s]		= true,
+		[clsid.wpn_hpsa_s]		= true,
+		[clsid.wpn_lr300_s]		= true,
+		[clsid.wpn_pm_s]		= true,
+		[clsid.wpn_rg6_s]		= true,
+		[clsid.wpn_rpg7_s]		= true,
+		[clsid.wpn_shotgun_s]	= true,
+		[clsid.wpn_svd_s]		= true,
+		[clsid.wpn_svu_s]		= true,
+		[clsid.wpn_usp45_s]		= true,
+		[clsid.wpn_val_s]		= true,
+		[clsid.wpn_vintorez_s]	= true,
+		[clsid.wpn_walther_s]	= true
+	}
+end
+function isMagazinedWeapon(object)
+local clsid_magazined_weapon = {
+	[clsid.wpn_ak74_s]		= true,
+	[clsid.wpn_bm16_s]		= true,
+	[clsid.wpn_groza_s]		= true,
+	[clsid.wpn_hpsa_s]		= true,
+	[clsid.wpn_lr300_s]		= true,
+	[clsid.wpn_pm_s]		= true,
+--	[clsid.wpn_rpg7_s]		= true,
+	[clsid.wpn_shotgun_s]	= true,
+	[clsid.wpn_svd_s]		= true,
+	[clsid.wpn_svu_s]		= true,
+	[clsid.wpn_usp45_s]		= true,
+	[clsid.wpn_val_s]		= true,
+	[clsid.wpn_vintorez_s]	= true,
+	[clsid.wpn_walther_s]	= true,
+	[clsid.wpn_binocular_s]	= true,
+	[clsid.wpn_rg6_s]		= true,
+}
+	return (object and clsid_magazined_weapon[object:clsid()])
+end
+
+-- Вычисляет yaw в радианах
+function yaw(v1, v2)
+	return math.acos( ( (v1.x*v2.x) + (v1.z*v2.z ) ) / math.sqrt((v1.x*v1.x + v1.z*v1.z ) * (v2.x*v2.x + v2.z*v2.z )) )
+end
+
+function yaw_degree(v1, v2)
+	return (math.acos( ( (v1.x*v2.x) + (v1.z*v2.z ) ) / math.sqrt((v1.x*v1.x + v1.z*v1.z ) * (v2.x*v2.x + v2.z*v2.z )) ) * 57.2957)
+end
+function yaw_degree3d(v1, v2)
+	return (math.acos((v1.x*v2.x + v1.y*v2.y + v1.z*v2.z)/math.sqrt((v1.x*v1.x + v1.y*v1.y + v1.z*v1.z )*(v2.x*v2.x + v2.y*v2.y + v2.z*v2.z)))*57.2957)
+end
+
+function vector_cross (v1, v2)
+	return vector():set(v1.y*v2.z - v1.z*v2.y, v1.z*v2.x  - v1.x*v2.z, v1.x*v2.y - v1.y*v2.x)
+end
+
+-- Вращает вектор вокруг оси y против часовой стрелки
+function vector_rotate_y (v, angle)
+	angle = angle * 0.017453292519943295769236907684886
+	local c = math.cos (angle)
+	local s = math.sin (angle)
+	return vector():set(v.x*c - v.z*s, v.y, v.x*s + v.z*c)
+end
+
+function stop_play_sound(obj)
+	if obj:alive() == true then
+		obj:set_sound_mask(-1)
+		obj:set_sound_mask(0)
+	end
+end
+
+function switch_online(id)
+	if id == -1 then return end
+	ai:set_switch_online(id, true)
+	ai:set_switch_offline(id, false)
+end
+
+function switch_offline(npc)
+	if not npc
+		or ((IAmAStalker[npc:clsid()] or IAmAMonster[npc:clsid()])
+		and not npc:alive())
+	then return end
+	ai:set_switch_online(npc:id (), false)
+	ai:set_switch_offline(npc:id (), true)
+end
+
+IAmAStalker = {}
+function IAmAStalkerInit()
+	IAmAStalker = {
+		[clsid.actor]			= true,
+		[clsid.script_stalker]	= true
+	}
+end
+IAmAMonster = {}
+function IAmAMonsterInit()
+	IAmAMonster = {
+		[clsid.boar_s]			= true,
+		[clsid.bloodsucker_s]	= true,
+		[clsid.dog_s]			= true,
+		[clsid.flesh_s]			= true,
+		[clsid.pseudodog_s]		= true,
+		[clsid.psy_dog_s]		= true,
+		[clsid.burer_s]			= true,
+		[clsid.cat_s]			= true,
+		[clsid.chimera_s]		= true,
+		[clsid.controller_s]	= true,
+		[clsid.fracture_s]		= true,
+		[clsid.poltergeist_s]	= true,
+		[clsid.gigant_s]		= true,
+		[clsid.zombie_s]		= true,
+		[clsid.tushkano_s]		= true,
+		[clsid.snork_s]			= true
+	}
+end
+
+function IsAlive(obj)
+	if not obj then return false end
+	local cls = obj:clsid()
+	return (IAmAStalker[cls] or IAmAMonster[cls]) and obj:alive()
+end
+
+-- быстрый if
+function iif(t,t1,t2)
+	return t and t1 or t2
+end
+
+-- значение между
+function between(t,t1,t2)
+	return t >= t1 and t <= t2
+end
+
+-- Вывод сообщения об ошибке, зависе
+function abort(fmt, ...)
+	local reason = (...==nil and fmt) or string.format(fmt, ...)
+	if db.actor then
+		local msg = "!!!ACHTUNG!!!".."\\n%c[255,255,0,0]"..reason
+		db.actor:give_game_news(msg, "ui\\ui_iconsTotal", Frect():set(913,752,83,47), 0, 80000)
+	end
+	log(reason)
+	console:execute("flush")
+end
+
+function set_inactivate_input_time(delta)
+	db.storage[db.actor:id()].disable_input_time = game.get_game_time()
+	db.storage[db.actor:id()].disable_input_idle = delta
+	level.disable_input()
+end
+
+-- проверяет целую часть числа на нечётность
+function odd(x)
+--	return math.floor(x*0.5)*2 == math.floor(x)
+	return math.fmod(x, 2) >= 1
+end
+
+--' Усталость
+function on_actor_critical_power()
+	if has_info("esc_trader_newbie") then
+		game.start_tutorial("part_11_weakness")
+	end
+	if not has_info("encyclopedy_tutorial_weakness") then
+		give_info("encyclopedy_tutorial_weakness")
+	end
+end
+
+function on_actor_critical_max_power()
+end
+
+--' Кровотечение
+function on_actor_bleeding()
+	if has_info("esc_trader_newbie") then
+		game.start_tutorial("part_8_wound")
+	end
+	if not has_info("encyclopedy_tutorial_wound") then
+		give_info("encyclopedy_tutorial_wound")
+	end
+end
+
+function on_actor_satiety()
+end
+
+--' Радиация
+function on_actor_radiation()
+	if has_info("esc_trader_newbie") then
+		game.start_tutorial("part_6_radiation")
+	end
+	if not has_info("encyclopedy_tutorial_radiation") then
+		give_info("encyclopedy_tutorial_radiation")
+	end
+end
+
+--' Заклинило оружие
+function on_actor_weapon_jammed()
+	if has_info("esc_trader_newbie") then
+		game.start_tutorial("part_9_weapon")
+	end
+	if not has_info("encyclopedy_tutorial_weapon") then
+		give_info("encyclopedy_tutorial_weapon")
+	end
+end
+
+--' не может ходить изза веса
+function on_actor_cant_walk_weight()
+	if has_info("esc_trader_newbie") then
+		game.start_tutorial("part_14_overload")
+	end
+	if not has_info("encyclopedy_tutorial_overload") then
+		give_info("encyclopedy_tutorial_overload")
+	end
+end
+
+--' пси воздействие
+function on_actor_psy()
+end
+
+--' инвентарное название объекта
+function get_inv_name(section)
+  return translate(config:r_string(section,"inv_name"))
+end
+
+function get_texture_info(id_name, id_default)
+	id_default = id_default or id_name
+
+	local task_info = GetTextureInfo(id_name, id_default)
+	local r = task_info:get_rect()
+
+	r.x2 = r.x2 - r.x1
+	r.y2 = r.y2 - r.y1
+	return task_info:get_file_name(), r
+end
+
+--' получение иконки предмета для give_talk_message и give_game_news
+function get_item_icon(item)
+	return Frect():set(
+		config:r_u32(item, "inv_grid_x")*50,
+		config:r_u32(item, "inv_grid_y")*50,
+		config:r_u32(item, "inv_grid_width")*50,
+		config:r_u32(item, "inv_grid_height")*50)
+end
+
+function ammo_section(section)
+	return config:r_string(section, "class") == "AMMO"
+end
+
+--' имя пользователя в опциях игры
+old_user_name = user_name
+user_name = function()
+	return ui_mm_opt_add.GetUserName()
+end
+
+news_manager.prepare_tips()

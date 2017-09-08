@@ -1,0 +1,60 @@
+-- Биндер сканеров аномалий для квеста Свиблова
+function init(obj)
+    local new_binder = sviblov_scaner_binder(obj)
+    obj:bind_object(new_binder)
+end
+---------------------------------------------------------------------------------------------
+-- Порядок загрузки:
+-- reload
+-- reinit
+-- load
+-- net_spawn
+---------------------------------------------------------------------------------------------
+class "sviblov_scaner_binder" (object_binder)
+function sviblov_scaner_binder:__init(obj) super(obj)
+	self.section = self.object:section()
+end 
+
+function sviblov_scaner_binder:reinit()
+    object_binder.reinit(self)
+	self.object:set_callback(callback.use_object, self.on_use_object, self)
+end
+
+function sviblov_scaner_binder:net_spawn(data)
+    if not object_binder.net_spawn(self, data) then
+        return false
+    end
+	self.object:set_tip_text(translate("st_use_sviblov_scaner"))
+    return true
+end
+
+function sviblov_scaner_binder:on_use_object(obj, who)
+--    log("sviblov_scaner_binder on_use callback %s",obj:section())
+	if not has_info("info_use_scaner") then
+		if self.section == "scaner_1" and not has_info("info_use_scaner_1") then
+			spawn_restrictor.sviblov_scaner1_sr1()
+		elseif self.section == "scaner_2" and not has_info("info_use_scaner_2") then
+			spawn_restrictor.sviblov_scaner2_sr1()
+		elseif self.section == "scaner_3" and not has_info("info_use_scaner_3") then
+			spawn_restrictor.sviblov_scaner3_sr1()
+		elseif self.section == "scaner_4" and not has_info("info_use_scaner_4") then
+			spawn_restrictor.sviblov_scaner4_sr1()
+		elseif self.section == "scaner_5" and not has_info("info_use_scaner_5") then
+			spawn_restrictor.sviblov_scaner5_sr1()
+		end
+	end
+end
+
+function sviblov_scaner_binder:net_destroy()
+	if self.object:position():distance_to(db.actor:position()) < config:r_float("alife","switch_distance") and not has_info("teleport_started") then
+		-- цель исчезла в онлайне и не телепорт = взрыв
+		if not has_info("info_use_scaner_"..string.sub(self.object:section(),8)) then
+			give_info("sviblov_hostel_fail")
+		else
+			give_info("info_scaner_"..string.sub(self.object:section(),8))
+		end
+	end
+
+	self.object:set_callback(callback.use_object, nil)
+    object_binder.net_destroy(self)
+end

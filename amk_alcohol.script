@@ -1,0 +1,33 @@
+-- Алкоголь ГГ. Не более 5 бутылок в сутки.
+function drink_vodka(obj)
+	if obj:section() ~= "vodka" then return end
+
+	local alc = string.to_table(get_value("alc",""))
+	table.insert(alc, game.minutes())
+	local limit = iif(has_info("acv_alk"),6,5)
+	
+	if #alc > limit then
+		db.actor:stop_talk()
+		amk.send_tip(translate("alc_too_much_die"),nil,nil,10)
+		timer("zonedocs_gg_kill",14.5,"kostya_dialog.zonedocs_gg_kill()")
+		level.add_cam_effector("camera_effects\\radar_stop.anm", 2507, false, "")
+	elseif #alc > limit-1 then
+		amk.send_tip(translate("alc_too_much"),nil,nil,10)
+	end
+	
+	set_value("alc",table.to_string(alc))
+	archievements.acv_count_event("acv_alk", 70, "acv_alk")
+end
+
+function update()
+	local alc = string.to_table(get_value("alc",""))
+	local gm = game.minutes()
+
+	for i=#alc,1,-1 do
+		if gm > alc[i]+60*24 then
+			table.remove(alc, i)
+		end
+	end
+
+	set_value("alc",table.to_string(alc))
+end

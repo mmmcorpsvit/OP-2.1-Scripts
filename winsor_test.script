@@ -1,0 +1,3 @@
+function main()
+	safe_utils.print_r(kostya_dialog.peshera_table)
+end

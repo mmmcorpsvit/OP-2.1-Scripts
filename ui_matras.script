@@ -1,0 +1,124 @@
+-- Интерфейс спальника
+-- Refactored by RanHum
+-- Внимание! Служит ТОЛЬКО юзер-интерфейсом класса _G.Dream! Не-интерфейсной логики тут быть не должно!
+
+class "Matras" (CUIScriptWnd)
+
+function Matras:__init(owner) super()
+	self.owner = owner
+	self:Init(50,50,550,450)
+
+	-- Файл-описатель элементов
+	local xml = CScriptXmlInit()
+	xml:ParseFile("ui_matras_wnd.xml")
+
+	-- Получение информации о текущем состоянии ГГ от _G.Dream
+	local state = _G.Dream:get_state()
+
+	-- Видео на заднем плане
+	xml:InitStatic("back_video", self)
+
+	-- Рамка
+	xml:InitStatic("background", self)
+
+	-- Кнопки
+	self:Register(xml:Init3tButton("btn_Quit", self),"btn_Quit")
+	self:AddCallback("btn_Quit",ui_events.BUTTON_CLICKED, self.Quit, self)
+
+	self.buttons = {}
+	local actions = {self.Do_1, self.Do_2, self.Do_3, self.Do_4, self.Do_5}
+
+	--local num = 0 -- Порядковый номер ВИДИМОЙ кнопки
+	for i = 1, 5 do
+		local _StB = state.buttons[i]
+		-- Если эта кнопка вообще включена в конфиге
+		if not _StB.NotShow then
+			local _b = {}
+			-- Подсчет видимых кнопок
+			--num = num + 1
+
+			--Регистрация
+			_b.button = xml:Init3tButton("btn_"..i, self)
+			self:Register(_b.button, "btn_"..i)
+			self:AddCallback("btn_"..i, ui_events.BUTTON_CLICKED, actions[i], self)
+
+			-- Затемнение соответствующих кнопок, если нельзя спать или дремать
+			if _StB.disabled then
+				_b.button:Enable(false)
+			else
+				_b.enabled = true
+			end
+
+			-- Вывод информации в кнопки
+			--_b.button:SetText(num .. ". " .. _StB.text)
+			_b.button:SetText(_StB.text)
+
+			_b.value = _StB.value
+
+			-- Ассоциация с клавишами
+			--_b.keys = {[DIK_keys["DIK_NUMPAD"..num]] = true, [DIK_keys["DIK_"..num]] = true}
+
+			self.buttons[i] = _b
+		end
+	end
+
+	-- Инфо-поля
+	self.infos = {
+		{section = "info_Warning"},
+		--{section = "info_Sleep"}, -- это объединить с info_Warning
+		{section = "info_Wait"}
+	}
+	--for i = 1, 3 do
+	for _,_i in pairs(self.infos) do
+		--local _i = self.infos[i]
+		--Регистрация
+		_i.info = xml:Init3tButton(_i.section, self)
+		self:Register(_i.info, _i.section)
+
+		-- Вывод информации в инфо-поля
+		_i.info:SetText(state[_i.section])
+
+		--self.infos[i] = _i -- таблицы всегда передаются по ссылке, это лишнее, оно и так будет = _i
+	end
+end
+--[[
+function Matras:OnKeyboard(dik, keyboard_action)
+	CUIScriptWnd.OnKeyboard(self,dik,keyboard_action)
+	if keyboard_action == ui_events.WINDOW_KEY_PRESSED then
+		if dik == DIK_keys.DIK_ESCAPE then
+			self:Quit()
+		else
+			for i = 1, 5 do
+				local _b = self.buttons[i]
+				if _b and _b.enabled and _b.keys[dik] then
+					self:Do_all(i)
+					return true
+				end
+			end
+		end
+	end
+	return true
+end
+--]]
+
+function Matras:Do_1() self:Do_all(1) end
+function Matras:Do_2() self:Do_all(2) end
+function Matras:Do_3() self:Do_all(3) end
+function Matras:Do_4() self:Do_all(4) end
+function Matras:Do_5() self:Do_all(5) end
+
+function Matras:Do_all(n)
+	local _v = self.buttons[n].value
+	if n == 5 then
+		_G.Dream:wait(_v)
+	else
+		_G.Dream:sleep(_v)
+	end
+	self:Quit()
+end
+
+function Matras:Quit()
+	self:GetHolder():start_stop_menu(self, true)
+end
+
+function Matras:__finalize() end

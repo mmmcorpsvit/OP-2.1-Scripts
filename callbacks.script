@@ -1,0 +1,43 @@
+local def_switch_distance=config:r_float("alife","switch_distance")
+	
+function set_default_switch_distance()
+	if (def_switch_distance ~= ai:switch_distance()) then
+		ai:switch_distance(def_switch_distance)
+	end
+end
+
+local callbacks=
+{
+	["test_info_portion"]=
+	{
+		["enable"]=
+			function(info_id) 
+				ai:switch_distance(300)
+			end,
+		["disable"]=
+			function(info_id) 
+				set_default_switch_distance()
+			end,
+	}
+}
+
+
+function info_disable_callback(npc, info_id)
+	local callback=callbacks[info_id]
+	if callback then
+		local disable_callback=callback["disable"]
+		if disable_callback then
+			disable_callback(info_id)
+		end
+	end
+end
+
+function info_callback(npc, info_id)
+	local callback=callbacks[info_id]
+	if callback then
+		local enable_callback=callback["enable"]
+		if enable_callback then
+			enable_callback(info_id)
+		end
+	end
+end
