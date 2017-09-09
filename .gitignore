@@ -2,7 +2,7 @@
 config
 sounds
 spawns
-#game.graph
+game.graph
 
 # Compiled Lua sources
 luac.out

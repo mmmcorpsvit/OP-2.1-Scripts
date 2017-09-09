@@ -1,7 +1,7 @@
 # Handle line endings automatically for files detected as text
 # and leave all files detected as binary untouched.
-* text=auto
+# * text=auto
 
-*.script linguist-language=Lua
-*.script text 
-*.script diff=lua 
+*.script linguist-language=Lua text=auto diff=lua 
+#*.script text 
+#*.script diff=lua 
