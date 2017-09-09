@@ -1,7 +1,0 @@
-# Handle line endings automatically for files detected as text
-# and leave all files detected as binary untouched.
-scripts\* text=auto
-
-scripts\*.script linguist-language=Lua
-scripts\*.script text 
-scripts\*.script diff=lua 
