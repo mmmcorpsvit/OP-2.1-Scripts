@@ -2,4 +2,5 @@
 # and leave all files detected as binary untouched.
 # * text=auto
 
-*.script linguist-language=Lua text=auto diff=lua encoding=cp1251
+*.script linguist-language=Lua text=auto diff=lua encoding=UTF-8
+

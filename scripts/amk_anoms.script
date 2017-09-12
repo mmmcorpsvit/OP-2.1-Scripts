@@ -538,7 +538,8 @@ function check_coordinates(pos, lname)
 	local tmp
 	
 	if hides then
-		log("[profiler][check_coordinates]")
+		--TODO: вызывается 5 раз после загрузки
+		--log("[profiler][check_coordinates]")
 		for i,o in ipairs(hides) do
 			if o.zone then
 				for j,v in ipairs(o.zone) do

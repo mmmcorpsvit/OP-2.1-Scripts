@@ -3,6 +3,7 @@
  Description: »нтерфейс чтени€/записи net-пакетов (SHoC:6/7(118),CS:8(124),SCoP:12(128))
  Copyright  : 2008-2013 © STALKER-community
  Author     : Artos (по материалам: bardak, Red75, Sokol_jack, KD87 (uACDC), xStream (xs_netpk))
+ ќптимизацы€: MMM_Corp, mmmsvit@gmail.com
 --]] ----------------------------------------------------------------------------------------------
 
 -- VARIABLEs (not to change!)
@@ -26,6 +27,19 @@ local shape_type = {
 }
 
 local sModule = script_name() -- string name of this file module
+
+
+-- mmm_corp, fix global to local
+local math_nan = math.nan
+local math_isnan = math.isnan
+local math_sqrt = math.sqrt
+local math_max = math.max
+
+-- local table_insert = table.insert
+local table_insert = function(tbl, value)
+	tbl[#tbl+1] = value	
+end
+
 
 --[[ for output of the debug information
 local log = function(fmt,...)
@@ -162,9 +176,23 @@ end
 
 -- HELPERs functions
 
+--local pcd_cache = {}
+
+
 -- custom data (ini-style strings)
 local _parse_custom_data = function(str)
 	if type(str) == 'string' then
+		--log("******************return from cache: "..str)
+		-- вернуть результат из кеша
+		--local cache = pcd_cache[str]
+		--if cache then
+		--	log("******************return from cache: ")
+		--	return cache, true
+		--	end
+			
+	
+		--log("[profile][_parse_custom_data]")
+		
 		local tbl = {}
 		--str = str:trim( str:gsub(";.-\n", "\n") ) -- cleanup comments, symbol ';' is denied in sections names and keys/values!
 		str=str:gsub(";.-\n", "\n"):gsub("\n+", "\n"):match("^%s*(.-)%s*$")
@@ -187,19 +215,23 @@ local _parse_custom_data = function(str)
 								end
 							end
 						end
-					else -- 'key' sequence
+					else -- 'key' sequence										
 						for k in line:gmatch('(.+)') do
 							k = k:trim()
 							if k and k ~= '' then
-								tbl[section][k] = math.nan
+								tbl[section][k] = math_nan
 							end
 						end
 					end
 				end
 			end
 		end
+		
+		--table.insert(pcd_cache, tbl)
 		return tbl, true
 	end
+	
+	--log("******************return from cache: "..str)
 	return {}, false
 end
 
@@ -210,7 +242,8 @@ local _fill_custom_data = function(tbl)
 			str = str .. "\n[" .. key.. "]\n"
 			for k,v in pairs(value) do
 				k = tostring(k)
-				if not math.isnan(v) then
+				--if not math.isnan(v) then
+				if not math_isnan(v) then
 					if type(v) == 'boolean' then
 						if v then
 							v = "<<true>>"
@@ -312,7 +345,7 @@ function shape:getRadius()
 	if self.type == shape_type.sphere then
 		return self.radius
 	end
-	return 0.5*math.sqrt(self.axis_x:magnitude()^2 + self.axis_z:magnitude()^2)
+	return 0.5*math_sqrt(self.axis_x:magnitude()^2 + self.axis_z:magnitude()^2)
 end
 
 class "complex_shape"
@@ -320,15 +353,15 @@ function complex_shape:__init()
 	self.shapes = {}
 end
 function complex_shape:add(shp)
-	table.insert(self.shapes, shp)
+	table_insert(self.shapes, shp)
 	return self
 end
 function complex_shape:addSphere(radius, offset)
-	table.insert(self.shapes, shape(shape_type.sphere, offset, radius))
+	table_insert(self.shapes, shape(shape_type.sphere, offset, radius))
 	return self
 end
 function complex_shape:addBox(axis_x, axis_y, axis_z, offset)
-	table.insert(self.shapes, shape(shape_type.box, axis_x, axis_y, axis_z, offset))
+	table_insert(self.shapes, shape(shape_type.box, axis_x, axis_y, axis_z, offset))
 	return self
 end
 function complex_shape:remove(n)
@@ -343,14 +376,14 @@ end
 function complex_shape:getTable()
 	local t = {}
 	for i=1,#self.shapes do
-		table.insert( t, self:get(i):getTable() )
+		table_insert( t, self:get(i):getTable() )
 	end
 	return t
 end
 function complex_shape:getRadius()
 	local radius = 0
 	for i=1,#self.shapes do
-		radius = math.max( radius, self:get(i):getRadius() )
+		radius = math_max( radius, self:get(i):getRadius() )
 	end
 	return radius
 end
@@ -398,7 +431,7 @@ local _r_chunk = function(pk,len,dt,tbl)
 		if not (tbl and type(tbl) == 'table') then tbl = {} end
 		local func = this["_r_"..(dt or 'u8')]
 		for i=1,len do
-			table.insert( tbl, func(pk) )
+			table_insert( tbl, func(pk) )
 		end
 	end
 	return tbl or {}
@@ -443,7 +476,8 @@ _w_l32u16v = function(pk,tbl) pk:w_s32(#tbl) _w_chunk(pk,tbl,'u16') end
 _w_l32szv  = function(pk,tbl) pk:w_s32(#tbl) _w_chunk(pk,tbl,'sz' ) end
 
 _r_l8szbv = function(pk)
-	tbl = {}
+	log("_r_l8szbv = function(pk)")
+	local tbl = {}
 	local count = pk:r_u8()
 	for i=1,count do
 		tbl[pk:r_stringZ()] = pk:r_bool()
@@ -459,6 +493,9 @@ _w_l8szbv = function(pk,tbl)
 end
 
 _r_l8szu16v = function(pk)
+	-- mmm_corp, fix
+	-- tbl = {}
+	log("_r_l8szu16v = function(pk)")
 	local tbl = {}
 	local count = pk:r_u8()
 	for i=1, count do
@@ -590,9 +627,9 @@ _r_uCTime = function(pk,ver)
 			return nil
 		elseif not pk:r_eof() then
 			for i=2,6 do
-				table.insert( tbl, pk:r_u8() ) -- M,D,h,m,s
+				table_insert( tbl, pk:r_u8() ) -- M,D,h,m,s
 			end
-			table.insert( tbl, pk:r_u16() ) -- ms
+			table_insert( tbl, pk:r_u16() ) -- ms
 		end
 	end
 	return tbl
@@ -651,7 +688,7 @@ _r_strn1 = function(pk,ver)
 			t.begin                = pk:r_u32()
 			t.fill_idle            = pk:r_u32()
 			t.idle_after_death_end = pk:r_u32()
-			table.insert(tbl.gulag.jobs, t)
+			table_insert(tbl.gulag.jobs, t)
 		end
 		-- npc_info (in smart)
 		tbl.npc_info = {}
@@ -1049,7 +1086,7 @@ _r_sf_squads = function(pk,ver)
 	local count = pk:r_u16() --squads count
 	for i=1,count do
 		local squad = _r_squad(pk,ver)
-		table.insert( tbl, squad )
+		table_insert( tbl, squad )
 	end
 	return tbl
 end
@@ -1318,7 +1355,7 @@ function net_base:get_pk2tbl()
 		local r_pos,w_pos = pk:r_tell(),pk:w_tell() -- begin&end of reading
 		pk:r_seek(0) -- installation of the beginning of reading
 		while not pk:r_eof() do -- цикл (до конца читаемого пакета)
-			table.insert( t, string.format("%02x", pk:r_u8()) )
+			table_insert( t, string.format("%02x", pk:r_u8()) )
 		end
 		-- restore of the beginning of reading
 		if r_pos < w_pos then
@@ -1336,7 +1373,7 @@ function net_base:get_pk2tbl()
 		if stpk:r_elapsed() > 2 then
 			stpk:r_seek(2) -- installation of the beginning (+2) of reading
 			while not stpk:r_eof() do -- цикл (до конца читаемого пакета)
-				table.insert( t, string.format("%02x", stpk:r_u8()) )
+				table_insert( t, string.format("%02x", stpk:r_u8()) )
 			end
 		end
 	end
@@ -1349,7 +1386,7 @@ function net_base:get_pk2tbl()
 			uppk:r_seek(2) -- installation of the beginning (+2) of reading
 			t.upd = {} -- sub-table for update-propeties
 			while not uppk:r_eof() do -- цикл (до конца читаемого пакета)
-				table.insert( t.upd, string.format("%02x", uppk:r_u8()) )
+				table_insert( t.upd, string.format("%02x", uppk:r_u8()) )
 			end
 		end
 	end
@@ -1413,7 +1450,7 @@ function tail_data:get()
 	local t = {}
 	if self.pk then
 		while not self.pk:r_eof() do
-			table.insert(t, self.pk:r_u8())
+			table_insert(t, self.pk:r_u8())
 		end
 	end
 	return t
@@ -1585,7 +1622,7 @@ function net_cse_abstract:_read_data()
 						else -- for debug (with key-value)
 							tbl.dyn = {}
 							for i=first_dyn,size do
-								table.insert( tbl.dyn, {["offset_"..i] = pk:r_u8()} ) -- key: смещение байта от начала
+								table_insert( tbl.dyn, {["offset_"..i] = pk:r_u8()} ) -- key: смещение байта от начала
 							end
 						end
 					end
@@ -1677,7 +1714,7 @@ function net_cse_abstract:get_cobj(reader)
 			t.dyn,i = {},0
 			while not pk:r_eof() do
 				i = i +1
-				table.insert( t.dyn, {["offset_"..i] = pk:r_u8()} ) -- key: смещение байта от начала
+				table_insert( t.dyn, {["offset_"..i] = pk:r_u8()} ) -- key: смещение байта от начала
 			end
 		end
 	end
@@ -1803,7 +1840,7 @@ function net_cse_ph_skeleton:_read_st_props(ret,pk)
 						bone[prop.name] = this["_r_"..prop.type](pk)
 					end
 				end
-				table.insert(ret["bones"], bone)
+				table_insert(ret["bones"], bone)
 			end
 		end
 	end
@@ -3152,7 +3189,7 @@ local function initialize()
 				local t = {}
 				if value and value ~= "" then
 					for str in value:gmatch('([^,]+)') do
-						table.insert(t, str:match('^%s*(%S*)')) -- +trim_w
+						table_insert(t, str:match('^%s*(%S*)')) -- +trim_w
 					end
 				end
 				-- [1] = cse_server_object_class, [2] = CLSID, [3] = flag, [4] = server_object_class
